@@ -239,6 +239,19 @@ run_no_stdin 1 "--only delta blocks when delta is missing" \
 assert_contains "delta is not installed"
 assert_absent "$TMP_ROOT/delta-home"
 
+# Delta must work with intentionally symlinked dotfiles (persistent homes):
+# the include is written through `git config`, not by appending to the file.
+SYMLINK_HOME="$TMP_ROOT/delta-symlink-home"
+mkdir -p "$SYMLINK_HOME" "$TMP_ROOT/persistent"
+printf '%s\n' '[user]' '	name = Test' > "$TMP_ROOT/persistent/gitconfig"
+ln -s "$TMP_ROOT/persistent/gitconfig" "$SYMLINK_HOME/.gitconfig"
+run 0 "--only delta works with a symlinked .gitconfig" \
+	env PATH="$FAKE_PATH" VIBES_SOURCE_ROOT="$SRC" "$SCRIPT" --only delta --yes --home "$SYMLINK_HOME"
+assert_contains "delta: added include.path"
+DELTA_LINK_COUNT=$(HOME="$SYMLINK_HOME" XDG_CONFIG_HOME="$SYMLINK_HOME/.config" git config --global --get-all include.path | grep -Fxc -- "$SRC/42vibes-bash/delta.gitconfig" || true)
+assert_eq "$DELTA_LINK_COUNT" "1" "delta include written through the symlink exactly once"
+test -L "$SYMLINK_HOME/.gitconfig" || fail "symlinked .gitconfig was replaced by a regular file"
+
 # VS Code needs an editor and a readable VSIX.
 VSCODE_MARKER=$TMP_ROOT/vscode-marker
 run_no_stdin 0 "--only vscode with code and a readable VSIX" \

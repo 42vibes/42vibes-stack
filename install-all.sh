@@ -823,14 +823,9 @@ preflight_delta() {
 		gitconfig1=$GIT_CONFIG_GLOBAL
 		gitconfig2=
 	fi
-	if [ -n "$gitconfig1" ] && ! check_target_path "$gitconfig1" append; then
-		block_component delta "$PREFLIGHT_REASON" path
-		return 0
-	fi
-	if [ -n "$gitconfig2" ] && { [ -e "$gitconfig2" ] || [ -L "$gitconfig2" ]; } && ! check_target_path "$gitconfig2" append; then
-		block_component delta "$PREFLIGHT_REASON" path
-		return 0
-	fi
+	# Delta is wired through `git config --global`, which resolves includes and
+	# follows intentionally symlinked dotfiles. No append-escape check here:
+	# the write target is chosen by git, not by this script.
 
 	GIT_INCLUDE_PRESENT=0
 	if git config --global --get-all include.path 2>/dev/null | grep -Fqx -e "$REPO_PATH/delta.gitconfig"; then
