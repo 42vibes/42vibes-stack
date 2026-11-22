@@ -87,6 +87,13 @@ liegen. GNOME Terminal wird weiterhin nur angefasst, wenn es installiert ist.
 Mit `--home` wird das systemweite GNOME-dconf-Profil nie geschrieben; der
 Installer gibt stattdessen den manuellen `apply.sh`-Befehl aus.
 
+### Firefox und VS Code
+
+Firefox-Themes werden manuell über `about:debugging#/runtime/this-firefox` →
+*Temporäres Add-on laden* eingebunden (siehe `../42vibes-firefox`). Der
+Installer fasst Browser-Profile nicht an. VS Code ist opt-in (`--only vscode`)
+und installiert nur ein bereits vorhandenes VSIX.
+
 ### Manuelle Terminal-Schritte
 
 Alacritty (Alacritty >= 0.13), in `~/.config/alacritty/alacritty.toml`:
