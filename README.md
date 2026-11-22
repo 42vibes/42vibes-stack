@@ -12,7 +12,9 @@ does not install packages globally and does not touch anything outside the
 target home directory. Network access only happens when `--clone` is given
 explicitly.
 
-## Requirements
+## Requirements and preflight
+
+### Source checkouts
 
 The default source locations are sibling checkouts:
 
@@ -27,21 +29,128 @@ The default source locations are sibling checkouts:
 If a checkout is missing, the installer prints the exact `git clone` command
 and skips that component. It never clones automatically. With `--clone` it
 may clone a missing checkout from
-`https://github.com/42vibes/<repo>.git` into the sibling path.
+`https://github.com/42vibes/<repo>.git` into the sibling path. `--check` and
+`--dry-run` never clone.
 
 You can point the installer at another source parent with
 `VIBES_SOURCE_ROOT=/path/to/checkouts`.
 
+### Install matrix
+
+The installer never installs packages and never calls `sudo`. Install what
+you need yourself. Debian 13+ and Ubuntu 25.04+ are the first releases with a
+`starship` package; older systems use the install script or Homebrew.
+
+| Tool | Debian 13+ / Ubuntu 25.04+ | Other Linux | macOS |
+| --- | --- | --- | --- |
+| `starship` | `apt install starship` | `curl -sS https://starship.rs/install.sh \| sh` or `brew install starship` | `brew install starship` |
+| `bat` | `apt install bat` (binary is `batcat` on Debian) | `apt install bat` or the distro package | `brew install bat` |
+| `delta` | `apt install git-delta` | `cargo install git-delta` or the distro package | `brew install git-delta` |
+| `git` | `apt install git` | distro package | `brew install git` |
+
+The installer reads `ID`, `ID_LIKE` and `VERSION_ID` from `/etc/os-release`
+and prints the matching hint. It never runs the command.
+
+### Preflight
+
+Every run, including `--check` and `--dry-run`, starts with a read-only
+preflight:
+
+* source checkouts and files must be readable;
+* every target, backup and cache path is resolved and must stay inside the
+  target home, so nothing is written through a symlink that points outside;
+* the nearest existing parent directory must be writable and searchable;
+* required tools are checked (`git`, `delta`, `bat`/`batcat`, `starship`,
+  `code`/`codium`, `dconf`/`gsettings`);
+* a local conflict blocks only that component; an unusable or unsafe target
+  home blocks every component.
+
+The target home is created only after the confirmation. A summary with
+planned, skipped, blocked and manual items is printed before any write.
+
+### Dependencies and selection
+
+* `delta` requires both `git` and `delta`; the include sets `pager` and
+  `diffFilter`, so it is not written if `delta` is missing.
+* `bat`/`batcat` is optional for the theme files; the cache is rebuilt only
+  when `bat` or `batcat` is present and the files changed.
+* `starship` may be missing: the config can be prepared, with a note that it
+  is not usable yet. `--only starship` treats a missing binary as a block.
+* `vscode` requires `code` or `codium` and a readable
+  `42vibes-theme-*.vsix`.
+* GNOME Terminal is touched only with `gnome-terminal`, `dconf`,
+  `gsettings`, an existing `org.gnome.Terminal.ProfilesList` schema and a
+  real graphical session; never with `--home`.
+* Missing terminal variants are not an error. Alacritty, WezTerm and
+  xfce4-terminal are always manual hints.
+
+With `--only`, a blocked requested component stops the whole run before the
+first write and exits 1. Without `--only` (default or `--all`), blocked
+components are skipped, the rest is installed, and the run exits 1 at the end.
+
+### Starship activation
+
+The installer writes the Starship config but never edits shell rc files and
+never runs `eval`. Add one line yourself:
+
+```sh
+# ~/.bashrc
+eval "$(starship init bash)"
+```
+
+For zsh use `eval "$(starship init zsh)"` in `~/.zshrc`. On macOS the login
+shell reads `~/.bash_profile` or `~/.profile`; make sure that file sources
+`~/.bashrc`. `$SHELL` only shows the configured login shell, not the shell
+that is actually running. The installer only searches common rc files for an
+existing `starship init` line (plain text, no execution) and reports it.
+
+### No Nerd Font required
+
+The palette deliberately avoids Nerd Font glyphs, so no patched font is
+required. The README of the individual projects documents the exact symbol
+choices.
+
+### `--check` and `--dry-run`
+
+* `--check` runs the preflight only: status, blocked items and remedies. It
+  writes nothing, does not clone, does not build caches and does not create
+  the target home. Exit 0 if everything selected is ready, 1 if anything is
+  blocked.
+* `--dry-run` runs the preflight and prints the planned changes (the same
+  `would ...` lines as an install), but writes nothing, clones nothing and
+  builds no cache.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | ready (`--check`) or completed without blocked components |
+| 1 | blocked, partial success, or aborted |
+| 2 | usage error, including a write run without a TTY and without `--yes` |
+
+### Order of operations
+
+1. Parse flags and select components.
+2. Run the read-only preflight and print the status table.
+3. Print the summary (planned / skipped / blocked / manual) and remedies.
+4. In `--check` mode, stop here.
+5. Ask for confirmation (skipped by `--yes`, not needed for `--dry-run`).
+6. Create the target home.
+7. Write the ready components and print the final summary.
+
 ## Quick start
 
 ```sh
+# Status and remedies only; writes nothing and creates no home
+./install-all.sh --check
+
 # Install the default set (opencode, vim, starship, bat, delta)
 ./install-all.sh
 
 # Everything safe, including kitty/foot/tmux/ghostty config updates
 ./install-all.sh --all --yes
 
-# Preview only; writes nothing, creates no backups
+# Preview only; writes nothing, clones nothing, creates no backups
 ./install-all.sh --all --dry-run
 
 # Only Vim
@@ -51,8 +160,9 @@ You can point the installer at another source parent with
 ./install-all.sh --only terminal --yes
 ```
 
-Without `--yes` the installer asks once before writing. `--dry-run` never
-asks and never writes.
+Without `--yes` the installer asks once before writing. A write run without a
+TTY requires `--yes` (otherwise exit 2). `--check` and `--dry-run` never ask
+and never write.
 
 ## Components
 
@@ -61,10 +171,10 @@ asks and never writes.
 | `opencode` | `42vibes-opencode/themes/42vibes.json` | `~/.config/opencode/themes/42vibes.json` | Symlink (copy with `--copy`). Restart OpenCode fully; `/reload` is not enough. |
 | `vim` | `42vibes-vim/colors/42vibes.vim` | `~/.vim/colors/42vibes.vim` | Symlink (copy with `--copy`). If `~/.vim` does not exist and `$XDG_CONFIG_HOME/vim` does, `$XDG_CONFIG_HOME/vim/colors/42vibes.vim` is used instead. |
 | `starship` | `42vibes-bash/starship.toml` | `~/.config/starship.toml` | Copy with backup. |
-| `bat` | `42vibes-bash/bat/42vibes.tmTheme`, `42vibes-light.tmTheme` | `~/.config/bat/themes/` | Copy with backup, then `bat cache --build` if `bat` is on `PATH`. |
+| `bat` | `42vibes-bash/bat/42vibes.tmTheme`, `42vibes-light.tmTheme` | `~/.config/bat/themes/` | Copy with backup, then `bat cache --build` if `bat` or `batcat` is available. |
 | `delta` | `42vibes-bash/delta.gitconfig` | `git config --global include.path` | `git config --global --add include.path <path>`, only if not already present. |
 | `terminal` | `42vibes-terminal/` | Kitty, foot, tmux, Ghostty, GNOME Terminal | Include lines with marker `# 42vibes`; GNOME profile via `apply.sh`. Alacritty/WezTerm/xfce4-terminal are manual. |
-| `vscode` | `42vibes-vscode/` | VS Code / VSCodium | Only with `--only vscode`. Installs an existing VSIX if `code`/`codium` is present; otherwise prints the `npx @vscode/vsce package` hint. No npm install in this repo. |
+| `vscode` | `42vibes-vscode/` | VS Code / VSCodium | Only with `--only vscode`. Requires `code`/`codium` and a readable VSIX; otherwise the preflight blocks the run with a remedy. No npm install in this repo. |
 
 ### Terminal details
 
@@ -130,8 +240,9 @@ but never edits those files.
 
 | Flag | Meaning |
 | --- | --- |
-| `--dry-run` | Show every planned action, create no files and no backups. |
-| `--yes` | Do not ask for confirmation. |
+| `--check` | Preflight only: status and remedies. No writes, clone, cache build or home creation. |
+| `--dry-run` | Preflight plus planned actions. No writes, clone, cache build or backups. |
+| `--yes` | Do not ask for confirmation. Mandatory for write runs without a TTY. |
 | `--only <list>` | Comma-separated components: `opencode,vim,starship,bat,delta,terminal,vscode`. |
 | `--all` | All standard components including `terminal`. `vscode` remains opt-in. |
 | `--home <dir>` | Target home directory. Defaults to `$HOME`; intended for tests. |
@@ -152,11 +263,14 @@ by `--only vscode`.
   timestamps.
 * Existing includes are detected by their exact line. A second run prints
   `already configured` / `already up to date` and writes nothing.
-* `--dry-run` routes through the same checks but performs no `mkdir`, `cp`,
-  `ln`, `git config`, `bat cache` or `apply.sh` call. It also creates no
-  backups.
+* `--dry-run` and `--check` route through the same preflight but perform no
+  `mkdir`, `cp`, `ln`, `git config`, `bat cache` or `apply.sh` call. They also
+  create no backups. `--check` stops after the status output and never
+  creates the target home.
 * New files are created without a backup, because there is nothing to
   preserve.
+* A second run is a no-op for unchanged files and includes. Backups are only
+  created when a file is actually replaced.
 
 ## VS Code
 
@@ -167,9 +281,10 @@ VS Code is never part of `--all`. Use it explicitly:
 ```
 
 If a `42vibes-theme-*.vsix` already exists in `../42vibes-vscode` and
-`code`/`codium` is installed, the installer offers to run
-`--install-extension`. It does not build packages and does not run `npm
-install`. To build one yourself:
+`code`/`codium` is installed, the installer runs `--install-extension` after
+the global confirmation. If either is missing, the preflight blocks the run
+(exit 1) and prints the remedy; nothing is installed. It does not build
+packages and does not run `npm install`. To build one yourself:
 
 ```sh
 cd ../42vibes-vscode
@@ -216,9 +331,13 @@ hand.
 make check
 ```
 
-`make check` runs `sh -n`, `bash -n`, a dry-run into a temporary home and
-verifies that the dry run created nothing. No test writes to the real
-`$HOME`.
+`make check` runs `sh -n`, `bash -n` and `tests/check.sh`. The test suite also
+runs under `dash` and `bash`, uses hermetic fake checkouts and a fake `PATH`
+to cover ready, blocked and missing-binary cases, verifies that `--check` and
+`--dry-run` write nothing, checks read-only homes and symlink escapes, tests
+the no-TTY rule, and runs a real install twice to prove that no backups or
+include lines are duplicated. No test writes to the real `$HOME`; all state
+lives in a temporary directory.
 
 ## License
 
